@@ -1,4 +1,4 @@
-import { CardUpgrade, HouseDebuff, Consumable, Passive } from './types';
+import { CardUpgrade, HouseDebuff, Consumable, Passive, MetaUpgrade } from './types';
 
 export const INITIAL_CREDITS = 100;
 export const INITIAL_ESSENCE = 0;
@@ -6,6 +6,39 @@ export const INITIAL_ESSENCE = 0;
 export const CORRUPTION_THRESHOLD_BASE = 8;
 
 export const STARTING_UPGRADE_IDS = ['midas_touch', 'soul_siphon', 'firewall_shard'];
+
+export const META_UPGRADES: MetaUpgrade[] = [
+    {
+        id: 'cache_injection',
+        name: 'Cache Injection',
+        description: 'Start every run with +25 Credits.',
+        cost: 50
+    },
+    {
+        id: 'essence_leak',
+        name: 'Essence Leak',
+        description: 'Start every run with +10 Essence.',
+        cost: 60
+    },
+    {
+        id: 'firewall_bypass',
+        name: 'Firewall Bypass',
+        description: 'Start every run with 1 "Data Spike" (Reveal Dealer).',
+        cost: 80
+    },
+    {
+        id: 'threat_dampener',
+        name: 'Threat Dampener',
+        description: 'Base Corruption Threshold increased by 2 (Slower difficulty).',
+        cost: 100
+    },
+    {
+        id: 'priority_access',
+        name: 'Priority Access',
+        description: 'All Forge Shop prices reduced by 10%.',
+        cost: 150
+    }
+];
 
 export const UPGRADES: CardUpgrade[] = [
   // --- STARTER SET ---

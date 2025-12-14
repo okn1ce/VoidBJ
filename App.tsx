@@ -1,49 +1,48 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { GameState, PlayingCard, GamePhase, CardUpgrade, Consumable, Passive } from './types';
+import { GameState, PlayingCard, GamePhase, CardUpgrade, Consumable, Passive, GlobalState, MetaUpgrade } from './types';
 import { createDeck, shuffleDeck, calculateHandScore, moveHighValueCardToTop } from './utils/gameLogic';
-import { INITIAL_CREDITS, INITIAL_ESSENCE, CORRUPTION_THRESHOLD_BASE, UPGRADES, CONSUMABLES, PASSIVES, HOUSE_DEBUFFS, STARTING_UPGRADE_IDS } from './constants';
+import { INITIAL_CREDITS, INITIAL_ESSENCE, CORRUPTION_THRESHOLD_BASE, UPGRADES, CONSUMABLES, PASSIVES, HOUSE_DEBUFFS, STARTING_UPGRADE_IDS, META_UPGRADES } from './constants';
 import { Card } from './components/Card';
 import { Button } from './components/Button';
-import { Coins, Zap, Skull, ShieldAlert, Hammer, Play, Terminal, Trash2, Disc, Cpu, Bug, AlertTriangle, Power, Save, Music, Volume2, VolumeX, Upload, Lock, Unlock } from 'lucide-react';
+import { Coins, Zap, Skull, ShieldAlert, Hammer, Play, Terminal, Trash2, Disc, Cpu, Bug, AlertTriangle, Power, Save, Music, Volume2, VolumeX, Upload, Lock, Unlock, Database, Hexagon, ArrowRight } from 'lucide-react';
 
-const SAVE_KEY = 'VOID_BJ_SAVE_V1';
+const SAVE_KEY_RUN = 'VOID_BJ_RUN_V1';
+const SAVE_KEY_GLOBAL = 'VOID_BJ_GLOBAL_V1';
 
-const App: React.FC = () => {
-  // --- STATE ---
-  const [state, setState] = useState<GameState>(() => {
-    // 1. Load from LocalStorage on Init
-    const saved = localStorage.getItem(SAVE_KEY);
+type AppView = 'menu' | 'mainframe' | 'game';
+
+export const App: React.FC = () => {
+  
+  // --- GLOBAL STATE (PERSISTENT) ---
+  const [globalState, setGlobalState] = useState<GlobalState>(() => {
+      const saved = localStorage.getItem(SAVE_KEY_GLOBAL);
+      if (saved) {
+          try { return JSON.parse(saved); } catch (e) { console.error("Global save corrupted"); }
+      }
+      return { fragments: 0, unlockedHacks: [], totalRuns: 0 };
+  });
+
+  // --- GAME STATE (CURRENT RUN) ---
+  const [state, setState] = useState<GameState | null>(() => {
+    // Attempt to load run
+    const saved = localStorage.getItem(SAVE_KEY_RUN);
     if (saved) {
         try {
             const parsed = JSON.parse(saved);
-            // Migration: Ensure new fields exist if loading old save
+            // Migration
             if (!parsed.unlockedUpgrades) parsed.unlockedUpgrades = STARTING_UPGRADE_IDS;
             if (!parsed.offeredUpgradeIds) parsed.offeredUpgradeIds = [];
             return parsed;
         } catch (e) {
-            console.error("Save file corrupted, resetting.");
+            console.error("Run save corrupted");
         }
     }
-    return {
-        credits: INITIAL_CREDITS,
-        essence: INITIAL_ESSENCE,
-        playerDeck: shuffleDeck(createDeck()), // Master deck
-        drawPile: [], 
-        discardPile: [], 
-        inventory: [],
-        activePassives: [],
-        unlockedUpgrades: STARTING_UPGRADE_IDS,
-        offeredUpgradeIds: [],
-        playerHand: [],
-        dealerHand: [],
-        dealerCardRevealed: false,
-        currentBet: 0,
-        houseLevel: 1,
-        corruptionTokens: 0,
-        corruptionThreshold: CORRUPTION_THRESHOLD_BASE,
-        phase: 'betting',
-        message: "Place your bet to begin."
-    };
+    return null;
+  });
+
+  const [view, setView] = useState<AppView>(() => {
+      // If we have an active run state, go to game
+      return state ? 'game' : 'menu';
   });
 
   const [betAmount, setBetAmount] = useState(10);
@@ -56,21 +55,88 @@ const App: React.FC = () => {
   const [isMuted, setIsMuted] = useState(false);
   const [hasTrack, setHasTrack] = useState(false);
 
-  // --- INITIALIZATION & SAVING ---
+  // --- PERSISTENCE EFFECTS ---
   useEffect(() => {
-    if (state.drawPile.length === 0 && state.playerDeck.length > 0 && state.phase === 'betting') {
-         // Re-init draw pile if empty (e.g. after load or reset)
-         setState(prev => ({
+    localStorage.setItem(SAVE_KEY_GLOBAL, JSON.stringify(globalState));
+  }, [globalState]);
+
+  useEffect(() => {
+    if (state) {
+        localStorage.setItem(SAVE_KEY_RUN, JSON.stringify(state));
+    } else {
+        localStorage.removeItem(SAVE_KEY_RUN);
+    }
+  }, [state]);
+
+  // Re-init draw pile on load if needed
+  useEffect(() => {
+    if (state && state.drawPile.length === 0 && state.playerDeck.length > 0 && state.phase === 'betting') {
+         setState(prev => prev ? ({
             ...prev,
             drawPile: shuffleDeck([...prev.playerDeck])
-         }));
+         }) : null);
     }
   }, []);
 
-  // Save on every state change
-  useEffect(() => {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(state));
-  }, [state]);
+  // --- META PROGRESSION HELPERS ---
+  const hasHack = (id: string) => globalState.unlockedHacks.includes(id);
+
+  const startRun = () => {
+      // Apply Meta Upgrades
+      let startCredits = INITIAL_CREDITS;
+      let startEssence = INITIAL_ESSENCE;
+      let startInventory: Consumable[] = [];
+      let startThreshold = CORRUPTION_THRESHOLD_BASE;
+
+      if (hasHack('cache_injection')) startCredits += 25;
+      if (hasHack('essence_leak')) startEssence += 10;
+      if (hasHack('threat_dampener')) startThreshold += 2;
+      if (hasHack('firewall_bypass')) {
+          const spike = CONSUMABLES.find(c => c.id === 'data_spike');
+          if (spike) startInventory.push(spike);
+      }
+
+      const freshDeck = shuffleDeck(createDeck());
+      
+      setState({
+          credits: startCredits,
+          essence: startEssence,
+          playerDeck: freshDeck,
+          drawPile: shuffleDeck([...freshDeck]),
+          discardPile: [],
+          inventory: startInventory,
+          activePassives: [],
+          unlockedUpgrades: STARTING_UPGRADE_IDS,
+          offeredUpgradeIds: [],
+          playerHand: [],
+          dealerHand: [],
+          dealerCardRevealed: false,
+          currentBet: 0,
+          houseLevel: 1,
+          corruptionTokens: 0,
+          corruptionThreshold: startThreshold,
+          phase: 'betting',
+          message: "System initialized. Place your bet."
+      });
+      setView('game');
+      setBetAmount(10);
+      setGlobalState(prev => ({ ...prev, totalRuns: prev.totalRuns + 1 }));
+  };
+
+  const returnToMainframe = () => {
+      setState(null);
+      setView('mainframe');
+  };
+
+  const buyMetaUpgrade = (upgrade: MetaUpgrade) => {
+      if (globalState.fragments >= upgrade.cost && !hasHack(upgrade.id)) {
+          setGlobalState(prev => ({
+              ...prev,
+              fragments: prev.fragments - upgrade.cost,
+              unlockedHacks: [...prev.unlockedHacks, upgrade.id]
+          }));
+      }
+  };
 
   // --- MUSIC HANDLERS ---
   const handleMusicUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -103,10 +169,9 @@ const App: React.FC = () => {
       setIsMuted(!isMuted);
   };
 
-  // --- PASSIVE HELPERS ---
-  const hasPassive = (id: string) => state.activePassives.some(p => p.id === id);
+  // --- GAMEPLAY HELPERS ---
+  const hasPassive = (id: string) => state ? state.activePassives.some(p => p.id === id) : false;
 
-  // --- HELPERS (Same Logic) ---
   const drawCard = (currentDrawPile: PlayingCard[], currentDiscardPile: PlayingCard[]) => {
     let newDraw = [...currentDrawPile];
     let newDiscard = [...currentDiscardPile];
@@ -119,6 +184,7 @@ const App: React.FC = () => {
   };
 
   const processCardEffects = (card: PlayingCard, currentEssence: number, currentCredits: number, currentCorruption: number) => {
+    if (!state) return { essenceDelta: 0, creditDelta: 0, corruptionDelta: 0 };
     let essenceGain = 1;
     let creditGain = 0;
     let corruptionChange = 0;
@@ -139,14 +205,8 @@ const App: React.FC = () => {
              creditGain += upg.value;
              corruptionChange += 1;
           }
-          // Hybrid Chip (Simulated via bonus_credits type in constants for now, but if we wanted custom logic:)
-          if (upg.id === 'hybrid_chip') {
-              // It already adds credits via bonus_credits type in constants
-              essenceGain += 1; // Extra essence
-          }
-          if (upg.id === 'essence_converter') {
-               creditGain -= 5;
-          }
+          if (upg.id === 'hybrid_chip') essenceGain += 1; 
+          if (upg.id === 'essence_converter') creditGain -= 5;
         });
     }
 
@@ -155,14 +215,13 @@ const App: React.FC = () => {
 
   // --- ACTIONS ---
   const placeBet = () => {
+    if (!state) return;
     if (state.credits < betAmount) {
-      setState(s => ({ ...s, message: "Not enough credits." }));
+      setState(s => s ? ({ ...s, message: "Not enough credits." }) : null);
       return;
     }
 
-    // Boon: Auto-Miner
     const extraEssence = hasPassive('auto_miner') ? 1 : 0;
-    // Boon: Backup Battery
     const backupEssence = (state.essence === 0 && hasPassive('backup_battery')) ? 5 : 0;
 
     let { drawPile, discardPile } = state;
@@ -184,21 +243,18 @@ const App: React.FC = () => {
         totalCorruptionDelta += eff1.corruptionDelta;
     }
 
-    // DEALER DRAW LOGIC
-    // BOSS LOGIC: If level is multiple of 5, Dealer gets a KING (Face Card)
     const isBoss = state.houseLevel > 0 && state.houseLevel % 5 === 0;
     const dealerDeck = shuffleDeck(createDeck());
     
     if (isBoss) {
-        // Find a King
         const kingIdx = dealerDeck.findIndex(c => c.rank === 'K');
         if (kingIdx > -1) {
             const king = dealerDeck.splice(kingIdx, 1)[0];
-            dealerDeck.push(king); // Push to top (end of array)
+            dealerDeck.push(king); 
         }
     }
     
-    dealerHand.push(dealerDeck.pop()!); // First card (Boss gets King here)
+    dealerHand.push(dealerDeck.pop()!);
 
     const p2 = drawCard(drawPile, discardPile);
     drawPile = p2.newDraw; discardPile = p2.newDiscard;
@@ -220,7 +276,7 @@ const App: React.FC = () => {
       nextPhase = 'dealer_turn';
     }
 
-    setState(prev => ({
+    setState(prev => prev ? ({
       ...prev,
       credits: prev.credits - betAmount + totalCreditGain,
       essence: prev.essence + totalEssenceGain,
@@ -233,10 +289,11 @@ const App: React.FC = () => {
       discardPile,
       phase: nextPhase,
       message: msg
-    }));
+    }) : null);
   };
 
   const useConsumable = (index: number) => {
+    if (!state) return;
     const item = state.inventory[index];
     if (!item) return;
 
@@ -249,12 +306,10 @@ const App: React.FC = () => {
         newState.corruptionTokens = Math.max(0, newState.corruptionTokens - 2);
         msg = "Threat level reduced.";
     } else if (item.type === 'guarantee_10') {
-        // Manipulate draw pile immediately
         newState.drawPile = moveHighValueCardToTop(newState.drawPile);
         msg = "Next card override active.";
     }
 
-    // Remove item
     const newInventory = [...state.inventory];
     newInventory.splice(index, 1);
     newState.inventory = newInventory;
@@ -264,6 +319,7 @@ const App: React.FC = () => {
   };
 
   const hit = () => {
+    if (!state) return;
     let { drawPile, discardPile, playerHand, essence, credits, corruptionTokens } = state;
     const draw = drawCard(drawPile, discardPile);
     const newCard = draw.card;
@@ -271,7 +327,6 @@ const App: React.FC = () => {
         const newHand = [...playerHand, newCard];
         const effects = processCardEffects(newCard, essence, credits, corruptionTokens);
         
-        // Curse: Memory Leak
         let hitCost = 0;
         if (hasPassive('memory_leak')) hitCost = 1;
 
@@ -287,7 +342,7 @@ const App: React.FC = () => {
             setTimeout(() => stand(), 500);
         }
 
-        setState(prev => ({
+        setState(prev => prev ? ({
           ...prev,
           playerHand: newHand,
           drawPile: draw.newDraw,
@@ -297,30 +352,28 @@ const App: React.FC = () => {
           corruptionTokens: Math.max(0, prev.corruptionTokens + effects.corruptionDelta),
           phase: nextPhase,
           message: msg
-        }));
+        }) : null);
     }
   };
 
   const stand = () => {
-    setState(prev => ({ ...prev, phase: 'dealer_turn', message: "Dealer's turn..." }));
+    setState(prev => prev ? ({ ...prev, phase: 'dealer_turn', message: "Dealer's turn..." }) : null);
   };
 
   // --- DEALER AI LOGIC ---
   useEffect(() => {
-    if (state.phase === 'dealer_turn') {
+    if (state && state.phase === 'dealer_turn') {
         const dScore = calculateHandScore(state.dealerHand);
-        
-        // BALANCING: Dealer is less strict in early game (Levels 1-3)
         const standThreshold = state.houseLevel <= 3 ? 16 : 17;
 
         const timer = setTimeout(() => {
             if (dScore < standThreshold) {
                  const dealerDeck = shuffleDeck(createDeck());
                  const newCard = dealerDeck[0];
-                 setState(prev => ({
+                 setState(prev => prev ? ({
                      ...prev,
                      dealerHand: [...prev.dealerHand, newCard]
-                 }));
+                 }) : null);
             } else {
                  resolveRound(state.playerHand, state.dealerHand, state.currentBet);
             }
@@ -328,9 +381,10 @@ const App: React.FC = () => {
 
         return () => clearTimeout(timer);
     }
-  }, [state.phase, state.dealerHand, state.playerHand, state.currentBet, state.houseLevel]); 
+  }, [state?.phase, state?.dealerHand.length]); // Dependencies slightly adjusted to trigger on phase or hand change
 
   const resolveRound = (pHand: PlayingCard[], dHand: PlayingCard[], bet: number, busted: boolean = false) => {
+    if (!state) return;
     const pScore = calculateHandScore(pHand);
     const dScore = calculateHandScore(dHand);
     let win = false;
@@ -341,44 +395,28 @@ const App: React.FC = () => {
     const dBlackjack = (dHand.length === 2 && dScore === 21);
     const isBoss = state.houseLevel > 0 && state.houseLevel % 5 === 0;
 
-    // --- NEW EFFECT LOGIC HOOKS ---
     let extraEssence = 0;
     let extraCredits = 0;
 
-    // Check Recycler (on_bust_essence) and Jackpot (on_21_credits)
     pHand.forEach(c => {
        c.upgrades?.forEach(u => {
-           if (busted && u.effectType === 'on_bust_essence') {
-               extraEssence += u.value;
-           }
-           if (pScore === 21 && u.effectType === 'on_21_credits') {
-               extraCredits += u.value;
-           }
+           if (busted && u.effectType === 'on_bust_essence') extraEssence += u.value;
+           if (pScore === 21 && u.effectType === 'on_21_credits') extraCredits += u.value;
        });
     });
 
     if (busted) {
-      // Check for Shield upgrades
       let shieldTriggered = false;
-      let shieldValue = 0.5;
-      
       pHand.forEach(c => {
          c.upgrades?.forEach(u => {
-             if (u.effectType === 'shield') {
-                 if (Math.random() < u.value) {
-                     shieldTriggered = true;
-                     // In case of multiple shields, use best? or just trigger once.
-                     // Logic: Refund 50% usually. Emergency Breaker is 90% chance, still 50% refund? 
-                     // Tooltip says "refund 50% bet". So yes.
-                 }
-             }
+             if (u.effectType === 'shield' && Math.random() < u.value) shieldTriggered = true;
          });
       });
 
       if (shieldTriggered) {
           msg = "FAILURE MITIGATED [SHIELD].";
           win = false;
-          payout = bet * 0.5; // Refund half
+          payout = bet * 0.5;
       } else {
           msg = "Busted! House wins.";
           win = false;
@@ -422,7 +460,6 @@ const App: React.FC = () => {
         win = false;
     }
 
-    // Apply Win Modifiers
     if (win) {
         let multi = 1;
         pHand.forEach(c => {
@@ -437,7 +474,6 @@ const App: React.FC = () => {
         payout = bet + (profit * multi);
     }
 
-    // Calculate progression changes
     let newCorruption = state.corruptionTokens;
     let newHouseLevel = state.houseLevel;
     let newThreshold = state.corruptionThreshold;
@@ -453,17 +489,12 @@ const App: React.FC = () => {
             newThreshold += 2;
             msg += " The House grows stronger!";
             
-            // --- UPGRADE UNLOCK CHECK ---
-            // Find upgrades that are NOT unlocked yet
             const locked = UPGRADES.filter(u => !state.unlockedUpgrades.includes(u.id));
-            
             if (locked.length > 0) {
-                // Shuffle and pick 3
                 const shuffled = [...locked].sort(() => 0.5 - Math.random());
                 newOfferedUpgrades = shuffled.slice(0, 3).map(u => u.id);
                 nextPhase = 'upgrade_selection';
             }
-            // -----------------------------
 
             if (newHouseLevel > 5 && newHouseLevel % 2 === 0) {
                  const curses = PASSIVES.filter(p => p.type === 'curse' && !newPassives.some(ap => ap.id === p.id));
@@ -477,6 +508,7 @@ const App: React.FC = () => {
     }
 
     setState(prev => {
+        if (!prev) return null;
         const currentCredits = prev.credits;
         const finalCredits = currentCredits + payout + extraCredits;
         
@@ -485,6 +517,9 @@ const App: React.FC = () => {
         if (finalCredits < 10) {
             nextPhase = 'game_over';
             finalMsg = "SYSTEM FAILURE: INSUFFICIENT FUNDS";
+            // award fragments
+            const fragmentsEarned = Math.floor((prev.houseLevel * 5) + (prev.essence / 10));
+            setGlobalState(gs => ({...gs, fragments: gs.fragments + fragmentsEarned}));
         }
         
         return {
@@ -504,46 +539,22 @@ const App: React.FC = () => {
   };
 
   const selectNewUpgrade = (upgradeId: string) => {
-      setState(prev => ({
+      setState(prev => prev ? ({
           ...prev,
           unlockedUpgrades: [...prev.unlockedUpgrades, upgradeId],
           phase: 'round_over',
           message: "New Upgrade compiled into Supply.",
           offeredUpgradeIds: []
-      }));
-  };
-
-  const resetGame = () => {
-    localStorage.removeItem(SAVE_KEY); // Clear save on death/reset
-    const freshDeck = shuffleDeck(createDeck());
-    setState({
-      credits: INITIAL_CREDITS,
-      essence: INITIAL_ESSENCE,
-      playerDeck: freshDeck, 
-      drawPile: shuffleDeck([...freshDeck]), 
-      discardPile: [],
-      inventory: [],
-      activePassives: [],
-      unlockedUpgrades: STARTING_UPGRADE_IDS,
-      offeredUpgradeIds: [],
-      playerHand: [],
-      dealerHand: [],
-      dealerCardRevealed: false,
-      currentBet: 0,
-      houseLevel: 1,
-      corruptionTokens: 0,
-      corruptionThreshold: CORRUPTION_THRESHOLD_BASE,
-      phase: 'betting',
-      message: "System rebooted. Place your bet."
-    });
-    setBetAmount(10);
+      }) : null);
   };
 
   const buyUpgrade = (upgrade: CardUpgrade) => {
-    if (!selectedCardId) return;
+    if (!state || !selectedCardId) return;
     let cost = upgrade.cost;
     if (state.houseLevel >= 4) cost = Math.floor(cost * 1.5);
     if (hasPassive('encryption_error')) cost = Math.floor(cost * 1.2);
+    // Meta Upgrade: Priority Access
+    if (hasHack('priority_access')) cost = Math.floor(cost * 0.9);
 
     if (state.essence < cost) return;
 
@@ -554,95 +565,96 @@ const App: React.FC = () => {
         return c;
     });
 
-    setState(prev => ({
+    setState(prev => prev ? ({
         ...prev,
         essence: prev.essence - cost,
         playerDeck: newMasterDeck,
         drawPile: prev.drawPile.map(c => c.id === selectedCardId ? { ...c, upgrades: [...(c.upgrades || []), upgrade] } : c),
         discardPile: prev.discardPile.map(c => c.id === selectedCardId ? { ...c, upgrades: [...(c.upgrades || []), upgrade] } : c),
         playerHand: prev.playerHand.map(c => c.id === selectedCardId ? { ...c, upgrades: [...(c.upgrades || []), upgrade] } : c),
-    }));
+    }) : null);
   };
 
-  // ... (buyConsumable, buyPassive, purgeCard unchanged) ...
-    const buyConsumable = (item: Consumable) => {
+  const buyConsumable = (item: Consumable) => {
+    if (!state) return;
     let cost = item.cost;
     if (hasPassive('encryption_error')) cost = Math.floor(cost * 1.2);
+    if (hasHack('priority_access')) cost = Math.floor(cost * 0.9);
 
     if (state.inventory.length >= 3) {
-        setState(prev => ({...prev, message: "Inventory full."}));
+        setState(prev => prev ? ({...prev, message: "Inventory full."}) : null);
         return;
     }
     if (state.essence < cost) {
-        setState(prev => ({...prev, message: "Not enough Essence."}));
+        setState(prev => prev ? ({...prev, message: "Not enough Essence."}) : null);
         return;
     }
 
-    setState(prev => ({
+    setState(prev => prev ? ({
         ...prev,
         essence: prev.essence - cost,
         inventory: [...prev.inventory, item],
         message: `Acquired ${item.name}.`
-    }));
+    }) : null);
   };
 
   const buyPassive = (passive: Passive) => {
-    if (!passive.cost) return; 
+    if (!state || !passive.cost) return; 
     let cost = passive.cost;
     if (hasPassive('encryption_error')) cost = Math.floor(cost * 1.2);
+    if (hasHack('priority_access')) cost = Math.floor(cost * 0.9);
 
     if (state.essence < cost) {
-         setState(prev => ({...prev, message: "Not enough Essence."}));
+         setState(prev => prev ? ({...prev, message: "Not enough Essence."}) : null);
          return;
     }
     if (hasPassive(passive.id)) return;
 
-    setState(prev => ({
+    setState(prev => prev ? ({
         ...prev,
         essence: prev.essence - cost,
         activePassives: [...prev.activePassives, passive],
         message: `System Module Installed: ${passive.name}`
-    }));
+    }) : null);
   };
 
   const purgeCard = () => {
-    if (!selectedCardId) return;
+    if (!state || !selectedCardId) return;
     const cost = 75 + (Math.max(0, 52 - state.playerDeck.length) * 10); 
     
     if (state.playerDeck.length <= 5) {
-        setState(prev => ({...prev, message: "Deck too small to purge."}));
+        setState(prev => prev ? ({...prev, message: "Deck too small to purge."}) : null);
         return;
     }
     
     if (state.essence < cost) {
-         setState(prev => ({...prev, message: `Need ${cost} Essence to purge.`}));
+         setState(prev => prev ? ({...prev, message: `Need ${cost} Essence to purge.`}) : null);
          return;
     }
 
     const newMasterDeck = state.playerDeck.filter(c => c.id !== selectedCardId);
     
-    setState(prev => ({
+    setState(prev => prev ? ({
         ...prev,
         essence: prev.essence - cost,
         playerDeck: newMasterDeck,
         drawPile: prev.drawPile.filter(c => c.id !== selectedCardId),
         discardPile: prev.discardPile.filter(c => c.id !== selectedCardId),
         message: "Card removed from database."
-    }));
+    }) : null);
     setSelectedCardId(null);
   };
   
   const goToForge = () => {
-    setState(prev => ({ ...prev, phase: 'forge', message: "Entering the Forge..." }));
+    setState(prev => prev ? ({ ...prev, phase: 'forge', message: "Entering the Forge..." }) : null);
   };
 
   const leaveForge = () => {
-    setState(prev => ({ ...prev, phase: 'betting', message: "Place your bet to begin.", playerHand: [], dealerHand: [] }));
+    setState(prev => prev ? ({ ...prev, phase: 'betting', message: "Place your bet to begin.", playerHand: [], dealerHand: [] }) : null);
   };
 
-  // --- RENDERING ---
+  // --- RENDERING HELPERS ---
 
-  // 2. Fix Purge Crash: Create a copy before sorting to avoid mutating state directly
   const renderCardList = (cards: PlayingCard[], title: string) => (
      <div className="flex flex-col gap-2 p-4 bg-black border border-slate-800 h-full overflow-y-auto relative">
         <div className="absolute top-0 right-0 p-1 text-xs text-slate-600">ID: DECK_MAIN</div>
@@ -665,10 +677,9 @@ const App: React.FC = () => {
      </div>
   );
 
-  const isBossLevel = state.houseLevel > 0 && state.houseLevel % 5 === 0;
-
-  // Safe check for selected card in Forge
-  const selectedCard = selectedCardId ? state.playerDeck.find(c => c.id === selectedCardId) : null;
+  // --- MAIN RENDER ---
+  const isBossLevel = state ? (state.houseLevel > 0 && state.houseLevel % 5 === 0) : false;
+  const selectedCard = (state && selectedCardId) ? state.playerDeck.find(c => c.id === selectedCardId) : null;
 
   return (
     <div className={`crt-container font-mono crt-flicker-global ${isBossLevel ? 'bg-red-950/20' : ''}`}>
@@ -686,7 +697,94 @@ const App: React.FC = () => {
         className="hidden" 
       />
 
-      <div className="relative z-10 min-h-screen flex flex-col p-4">
+      {/* --- MENU VIEW --- */}
+      {view === 'menu' && (
+          <div className="relative z-10 min-h-screen flex flex-col items-center justify-center p-4">
+              <div className="text-center mb-12">
+                  <h1 className="text-6xl font-mono text-amber-500 text-glow flicker tracking-[0.2em] font-bold mb-4">VOID_BJ.EXE</h1>
+                  <p className="text-slate-400 tracking-widest text-lg">THE HOUSE ALWAYS WATCHES</p>
+              </div>
+              
+              <div className="flex flex-col gap-6 w-full max-w-md">
+                  <Button size="lg" onClick={() => setView('mainframe')} className="text-xl py-6 animate-pulse-slow">
+                      <Database size={24} /> ENTER MAINFRAME
+                  </Button>
+                  <Button variant="secondary" onClick={() => startRun()} className="text-lg">
+                      <Play size={20} /> INITIATE RUN
+                  </Button>
+              </div>
+
+              <div className="mt-12 text-slate-600 text-xs text-center">
+                  RUNS ATTEMPTED: {globalState.totalRuns} <br/>
+                  SYSTEM INTEGRITY: STABLE
+              </div>
+          </div>
+      )}
+
+      {/* --- MAINFRAME VIEW (META SHOP) --- */}
+      {view === 'mainframe' && (
+          <div className="relative z-10 min-h-screen flex flex-col p-8">
+              <div className="flex justify-between items-center mb-8 border-b border-slate-700 pb-4">
+                  <div className="flex items-center gap-4">
+                      <Hexagon size={32} className="text-purple-500" />
+                      <h2 className="text-3xl text-purple-400 font-bold tracking-widest text-glow">THE MAINFRAME</h2>
+                  </div>
+                  <div className="flex items-center gap-2 border border-purple-900 bg-purple-900/20 px-4 py-2">
+                      <span className="text-slate-400 text-sm">DATA FRAGMENTS:</span>
+                      <span className="text-2xl text-purple-400 font-bold font-mono">{globalState.fragments}</span>
+                  </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 flex-1 overflow-y-auto pb-20">
+                  {META_UPGRADES.map(hack => {
+                      const owned = hasHack(hack.id);
+                      const canAfford = globalState.fragments >= hack.cost;
+
+                      return (
+                          <div key={hack.id} className={`p-6 border-2 flex flex-col justify-between h-64 transition-all ${owned ? 'border-teal-900 bg-teal-900/10' : canAfford ? 'border-slate-600 hover:border-purple-500 bg-slate-900/40' : 'border-slate-800 bg-black opacity-50'}`}>
+                              <div>
+                                  <div className="flex justify-between items-start mb-4">
+                                      <h3 className={`text-xl font-bold ${owned ? 'text-teal-400' : 'text-slate-200'}`}>{hack.name}</h3>
+                                      {owned ? <Unlock size={20} className="text-teal-500" /> : <Lock size={20} className="text-slate-600" />}
+                                  </div>
+                                  <p className="text-sm text-slate-400">{hack.description}</p>
+                              </div>
+                              
+                              <div className="mt-4">
+                                  {owned ? (
+                                      <div className="w-full text-center py-2 bg-teal-900/20 text-teal-500 text-sm font-bold border border-teal-900">
+                                          INSTALLED
+                                      </div>
+                                  ) : (
+                                      <Button 
+                                          variant="primary" 
+                                          className="w-full"
+                                          disabled={!canAfford}
+                                          onClick={() => buyMetaUpgrade(hack)}
+                                      >
+                                          COMPILE ({hack.cost} DF)
+                                      </Button>
+                                  )}
+                              </div>
+                          </div>
+                      );
+                  })}
+              </div>
+
+              <div className="fixed bottom-8 right-8 flex gap-4">
+                   <Button variant="secondary" onClick={() => setView('menu')}>
+                       BACK TO MENU
+                   </Button>
+                   <Button variant="primary" size="lg" onClick={() => startRun()}>
+                       INITIATE RUN <ArrowRight size={20} />
+                   </Button>
+              </div>
+          </div>
+      )}
+
+      {/* --- GAME VIEW --- */}
+      {view === 'game' && state && (
+        <div className="relative z-10 min-h-screen flex flex-col p-4">
         
         {/* TOP HUD */}
         <div className="grid grid-cols-3 gap-4 mb-2 border-b-2 border-slate-800 pb-4">
@@ -716,7 +814,7 @@ const App: React.FC = () => {
             <div className="flex justify-center items-center">
                 <div className="border-x-2 border-slate-800 px-8 text-center">
                     <h1 className="text-3xl text-amber-500 text-glow flicker tracking-[0.2em] font-bold">VOID_BJ.EXE</h1>
-                    <div className="text-xs text-slate-600 mt-1">VER 1.5.0 - SUPPLY CHAIN UPDATE</div>
+                    <div className="text-xs text-slate-600 mt-1">VER 1.6.0 - THE MAINFRAME</div>
                 </div>
             </div>
 
@@ -754,7 +852,15 @@ const App: React.FC = () => {
                         <div className="border-4 border-red-600 p-12 bg-black shadow-[0_0_50px_rgba(220,38,38,0.5)] text-center max-w-2xl w-full mx-4">
                             <AlertTriangle size={64} className="text-red-600 mx-auto mb-6 animate-pulse" />
                             <h1 className="text-5xl font-mono text-red-600 text-glow flicker mb-4 tracking-widest">SYSTEM FAILURE</h1>
-                            <div className="text-xl text-slate-400 font-mono mb-8 tracking-wider">CREDITS DEPLETED. CONNECTION SEVERED.</div>
+                            <div className="text-xl text-slate-400 font-mono mb-4 tracking-wider">CREDITS DEPLETED. CONNECTION SEVERED.</div>
+                            
+                            {/* FRAGMENTS AWARD */}
+                            <div className="bg-purple-900/20 border border-purple-800 p-4 mb-8">
+                                <div className="text-sm text-purple-300 mb-1">DATA FRAGMENTS RECOVERED</div>
+                                <div className="text-3xl font-bold text-purple-400 text-glow">
+                                    +{Math.floor((state.houseLevel * 5) + (state.essence / 10))}
+                                </div>
+                            </div>
                             
                             <div className="grid grid-cols-2 gap-4 mb-8 text-left border-y border-slate-800 py-4">
                                 <div>
@@ -767,8 +873,8 @@ const App: React.FC = () => {
                                 </div>
                             </div>
 
-                            <Button onClick={resetGame} size="lg" variant="danger" className="w-full">
-                                <Power size={20} /> INITIALIZE REBOOT
+                            <Button onClick={returnToMainframe} size="lg" variant="danger" className="w-full">
+                                <Database size={20} /> RETURN TO MAINFRAME
                             </Button>
                         </div>
                     </div>
@@ -835,7 +941,8 @@ const App: React.FC = () => {
                                                     <div className="text-xs text-slate-500 mb-2">Available Upgrades:</div>
                                                     <div className="flex flex-col gap-2">
                                                         {UPGRADES.filter(u => state.unlockedUpgrades.includes(u.id)).map(upg => {
-                                                            const cost = state.houseLevel >= 4 ? Math.floor(upg.cost * 1.5) : upg.cost;
+                                                            let cost = state.houseLevel >= 4 ? Math.floor(upg.cost * 1.5) : upg.cost;
+                                                            if (hasHack('priority_access')) cost = Math.floor(cost * 0.9);
                                                             const canAfford = state.essence >= cost;
                                                             return (
                                                                 <button 
@@ -878,6 +985,7 @@ const App: React.FC = () => {
                                         {CONSUMABLES.map(item => {
                                             let cost = item.cost;
                                             if (hasPassive('encryption_error')) cost = Math.floor(cost * 1.2);
+                                            if (hasHack('priority_access')) cost = Math.floor(cost * 0.9);
                                             const canAfford = state.essence >= cost;
                                             return (
                                                 <button 
@@ -908,6 +1016,7 @@ const App: React.FC = () => {
                                         {PASSIVES.filter(p => p.type === 'boon').map(item => {
                                             let cost = item.cost || 999;
                                             if (hasPassive('encryption_error')) cost = Math.floor(cost * 1.2);
+                                            if (hasHack('priority_access')) cost = Math.floor(cost * 0.9);
                                             const canAfford = state.essence >= cost;
                                             const alreadyOwned = hasPassive(item.id);
                                             
@@ -1059,7 +1168,7 @@ const App: React.FC = () => {
                                         <Button 
                                             onClick={() => {
                                                 setBetAmount(b => b * 2);
-                                                setState(prev => ({ ...prev, credits: prev.credits - prev.currentBet, currentBet: prev.currentBet * 2 }));
+                                                setState(prev => prev ? ({ ...prev, credits: prev.credits - prev.currentBet, currentBet: prev.currentBet * 2 }) : null);
                                                 
                                                 // Double Logic Inline
                                                 let { drawPile, discardPile, playerHand, essence, credits, corruptionTokens } = state;
@@ -1080,7 +1189,7 @@ const App: React.FC = () => {
                                                     if (score > 21) {
                                                         nextPhase = 'round_over';
                                                         msg = "Bust on Double!";
-                                                        setState(prev => ({
+                                                        setState(prev => prev ? ({
                                                             ...prev,
                                                             playerHand: newHand,
                                                             drawPile: draw.newDraw,
@@ -1091,12 +1200,12 @@ const App: React.FC = () => {
                                                             currentBet: prev.currentBet * 2,
                                                             phase: nextPhase,
                                                             message: msg
-                                                        }));
+                                                        }) : null);
                                                         setTimeout(() => resolveRound(newHand, state.dealerHand, state.currentBet * 2, true), 1000);
                                                         return;
                                                     }
 
-                                                    setState(prev => ({
+                                                    setState(prev => prev ? ({
                                                         ...prev,
                                                         playerHand: newHand,
                                                         drawPile: draw.newDraw,
@@ -1107,7 +1216,7 @@ const App: React.FC = () => {
                                                         currentBet: prev.currentBet * 2,
                                                         phase: nextPhase,
                                                         message: msg
-                                                    }));
+                                                    }) : null);
                                                 }
                                             }} 
                                             variant="ghost" 
@@ -1121,7 +1230,7 @@ const App: React.FC = () => {
 
                             {state.phase === 'round_over' && (
                                 <div className="flex gap-4 animate-pulse w-full justify-center p-4 border-t border-slate-800 bg-slate-900/30">
-                                    <Button onClick={() => setState(s => ({ ...s, phase: 'betting', playerHand: [], dealerHand: [], message: "Place your bet to begin." }))} size="lg" variant="primary">
+                                    <Button onClick={() => setState(s => s ? ({ ...s, phase: 'betting', playerHand: [], dealerHand: [], message: "Place your bet to begin." }) : null)} size="lg" variant="primary">
                                         <Play size={18} /> Next Hand
                                     </Button>
                                     <Button variant="forge" onClick={goToForge}>
@@ -1209,9 +1318,7 @@ const App: React.FC = () => {
                 </div>
             </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
-
-export default App;

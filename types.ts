@@ -10,6 +10,19 @@ export interface CardUpgrade {
   value: number;
 }
 
+export interface MetaUpgrade {
+  id: string;
+  name: string;
+  description: string;
+  cost: number; // Data Fragments cost
+}
+
+export interface GlobalState {
+  fragments: number;
+  unlockedHacks: string[];
+  totalRuns: number;
+}
+
 export type ConsumableType = 'reveal_dealer' | 'reduce_threat' | 'guarantee_10';
 
 export interface Consumable {
