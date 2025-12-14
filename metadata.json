@@ -1,0 +1,5 @@
+{
+  "name": "Void Blackjack",
+  "description": "A roguelite blackjack deck-builder where you forge your own deck to beat an ever-corrupting House.",
+  "requestFramePermissions": []
+}
