@@ -8,6 +8,7 @@ import { Coins, Zap, Skull, ShieldAlert, Hammer, Play, Terminal, Trash2, Disc, C
 
 const SAVE_KEY_RUN = 'VOID_BJ_RUN_V1';
 const SAVE_KEY_GLOBAL = 'VOID_BJ_GLOBAL_V1';
+const DEFAULT_TRACK = "https://actions.google.com/sounds/v1/science_fiction/scifi_industrial_loop.ogg";
 
 type AppView = 'menu' | 'mainframe' | 'game';
 
@@ -53,7 +54,16 @@ export const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [hasTrack, setHasTrack] = useState(false);
+  const [hasTrack, setHasTrack] = useState(true); // Default to true for default track
+
+  // --- INITIALIZATION ---
+  useEffect(() => {
+    // Set default track
+    if (audioRef.current) {
+        audioRef.current.src = DEFAULT_TRACK;
+        audioRef.current.volume = 0.3;
+    }
+  }, []);
 
   // --- PERSISTENCE EFFECTS ---
   useEffect(() => {
@@ -78,10 +88,51 @@ export const App: React.FC = () => {
     }
   }, []);
 
+  // --- MUSIC HANDLERS ---
+  const tryPlayMusic = () => {
+      if (audioRef.current && !isPlaying && !isMuted) {
+          audioRef.current.play()
+            .then(() => setIsPlaying(true))
+            .catch(e => console.log("Audio autoplay blocked until interaction"));
+      }
+  };
+
+  const handleMusicUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && audioRef.current) {
+        const url = URL.createObjectURL(file);
+        audioRef.current.src = url;
+        audioRef.current.volume = 0.5;
+        audioRef.current.play().then(() => {
+            setIsPlaying(true);
+            setHasTrack(true);
+        }).catch(e => console.error("Audio play failed", e));
+    }
+  };
+
+  const togglePlay = () => {
+      if (!audioRef.current) return;
+      if (isPlaying) {
+          audioRef.current.pause();
+          setIsPlaying(false);
+      } else {
+          audioRef.current.play();
+          setIsPlaying(true);
+      }
+  };
+
+  const toggleMute = () => {
+      if (!audioRef.current) return;
+      audioRef.current.muted = !isMuted;
+      setIsMuted(!isMuted);
+  };
+
   // --- META PROGRESSION HELPERS ---
   const hasHack = (id: string) => globalState.unlockedHacks.includes(id);
 
   const startRun = () => {
+      tryPlayMusic(); // Ensure music starts on run start
+      
       // Apply Meta Upgrades
       let startCredits = INITIAL_CREDITS;
       let startEssence = INITIAL_ESSENCE;
@@ -124,7 +175,13 @@ export const App: React.FC = () => {
   };
 
   const returnToMainframe = () => {
+      tryPlayMusic();
       setState(null);
+      setView('mainframe');
+  };
+
+  const enterMainframe = () => {
+      tryPlayMusic();
       setView('mainframe');
   };
 
@@ -136,37 +193,6 @@ export const App: React.FC = () => {
               unlockedHacks: [...prev.unlockedHacks, upgrade.id]
           }));
       }
-  };
-
-  // --- MUSIC HANDLERS ---
-  const handleMusicUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && audioRef.current) {
-        const url = URL.createObjectURL(file);
-        audioRef.current.src = url;
-        audioRef.current.volume = 0.5;
-        audioRef.current.play().then(() => {
-            setIsPlaying(true);
-            setHasTrack(true);
-        }).catch(e => console.error("Audio play failed", e));
-    }
-  };
-
-  const togglePlay = () => {
-      if (!audioRef.current || !hasTrack) return;
-      if (isPlaying) {
-          audioRef.current.pause();
-          setIsPlaying(false);
-      } else {
-          audioRef.current.play();
-          setIsPlaying(true);
-      }
-  };
-
-  const toggleMute = () => {
-      if (!audioRef.current) return;
-      audioRef.current.muted = !isMuted;
-      setIsMuted(!isMuted);
   };
 
   // --- GAMEPLAY HELPERS ---
@@ -706,7 +732,7 @@ export const App: React.FC = () => {
               </div>
               
               <div className="flex flex-col gap-6 w-full max-w-md">
-                  <Button size="lg" onClick={() => setView('mainframe')} className="text-xl py-6 animate-pulse-slow">
+                  <Button size="lg" onClick={enterMainframe} className="text-xl py-6 animate-pulse-slow">
                       <Database size={24} /> ENTER MAINFRAME
                   </Button>
                   <Button variant="secondary" onClick={() => startRun()} className="text-lg">
